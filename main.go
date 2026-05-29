@@ -3,61 +3,75 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/ingridhq/zebrash"
 	"github.com/ingridhq/zebrash/drawers"
 )
 
-const labelZPL = `^XA
-^LL400
-^PW400
-^FO%d,%d^GFA,1024,1024,16,%s^FS
-^XZ`
+const frameRate = 30.0
 
-var ballHex = func() string {
-	return stringsJoin(
-		"0000000000000000,00000007FF000000,0000007FFFE00000,000001FFFFF80000",
-		"000007FFFFFF0000,00000FFFFFFF8000,00001FFFFFFFC000,00003FFFFFFFE000",
-		"00007FFFFFFFF000,00007FFFFFFFF800,0000FFFFFFFFF800,0000FFFFFFFFFC00",
-		"0001FFFFFFFFFC00,0001FFFFFFFFFE00,0001FFFFFFFFFE00,0001FFFFFFFFFF00",
-		"0001FFFFFFFFFF00,0001FFFFFFFFFF00,0001FFFFFFFFFF00,0001FFFFFFFFFF00",
-		"0001FFFFFFFFFE00,0001FFFFFFFFFE00,0000FFFFFFFFFC00,0000FFFFFFFFFC00",
-		"00007FFFFFFFF800,00007FFFFFFFF000,00003FFFFFFFE000,00001FFFFFFFC000",
-		"00000FFFFFFF8000,000007FFFFFF0000,000001FFFFF80000,0000007FFFE00000",
-		"00000007FF000000,0000000000000000",
-	)
-}()
-
-func stringsJoin(s ...string) string {
-	var result string
-	for _, v := range s {
-		result += v
-	}
-	return result
-}
+var (
+	startTime     = time.Now()
+	renderCount   atomic.Int64
+	renderNanos   atomic.Int64
+	firstRender   atomic.Bool
+)
 
 func currentZPL() string {
-	t := float64(time.Now().UnixMilli()) / 1000.0
-	y := int(160 + math.Sin(t*4) * 140)
-	return fmt.Sprintf(labelZPL, 36, y, ballHex)
+	if len(badAppleFrames) == 0 {
+		return "^XA^XZ"
+	}
+	elapsed := time.Since(startTime).Seconds()
+	idx := int(elapsed*frameRate) % len(badAppleFrames)
+	return fmt.Sprintf("^XA\n^LL360\n^PW480\n%s\n^XZ", badAppleFrames[idx])
+}
+
+func currentFrameIndex() int {
+	if len(badAppleFrames) == 0 {
+		return 0
+	}
+	elapsed := time.Since(startTime).Seconds()
+	return int(elapsed*frameRate) % len(badAppleFrames)
+}
+
+func printStats() {
+	ticker := time.NewTicker(5 * time.Second)
+	for range ticker.C {
+		count := renderCount.Load()
+		nanos := renderNanos.Load()
+		avg := time.Duration(0)
+		if count > 0 {
+			avg = time.Duration(nanos / count)
+		}
+		log.Printf("stats: %d renders | avg %v | frame %d/%d",
+			count, avg.Round(time.Microsecond), currentFrameIndex(), len(badAppleFrames))
+	}
 }
 
 func main() {
+	log.Printf("loaded %d bad apple frames", len(badAppleFrames))
+	if len(badAppleFrames) == 0 {
+		log.Fatal("no frames loaded — does frames.zip exist in the binary directory?")
+	}
+
+	go printStats()
+
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
 
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         101.6,
-		LabelHeightMm:        101.6,
+		LabelWidthMm:         60,
+		LabelHeightMm:        45,
 		Dpmm:                 8,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
 	}
 
 	http.HandleFunc("/label.png", func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
 		zpl := currentZPL()
 
 		labels, err := parser.Parse([]byte(zpl))
@@ -76,12 +90,21 @@ func main() {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 			return
 		}
+
+		elapsed := time.Since(start)
+		renderCount.Add(1)
+		renderNanos.Add(elapsed.Nanoseconds())
+
+		if firstRender.CompareAndSwap(false, true) {
+			log.Printf("first render: %v (frame %d)", elapsed.Round(time.Microsecond), currentFrameIndex())
+		}
 	})
 
 	http.HandleFunc("/label.zpl", func(w http.ResponseWriter, r *http.Request) {
+		zpl := currentZPL()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Write([]byte(currentZPL()))
+		w.Write([]byte(zpl))
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +166,7 @@ var indexHTML = `<!doctype html>
   }
   img {
     display: block;
-    max-width: 400px;
+    max-width: 480px;
     height: auto;
     background: #fff;
     border-radius: 4px;
@@ -151,18 +174,17 @@ var indexHTML = `<!doctype html>
   }
   pre {
     font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    color: #ccc;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #999;
     background: #0f0f0f;
     border-radius: 6px;
     padding: 16px;
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-all;
-    min-width: 340px;
-    max-width: 450px;
-    max-height: 500px;
+    max-width: 480px;
+    max-height: 360px;
     overflow-y: auto;
   }
   .status {
@@ -173,9 +195,9 @@ var indexHTML = `<!doctype html>
 </style>
 </head>
 <body>
-<h1>zpl-renderer</h1>
+<h1>bad apple in zpl</h1>
 <div class="status">
-  Polling every 100ms &middot; frame <span id="frame">0</span>
+  <span id="fps">0</span> fps &middot; frame <span id="frame">0</span> / <span id="total">0</span>
 </div>
 <div class="grid">
   <div class="panel">
@@ -190,17 +212,47 @@ var indexHTML = `<!doctype html>
 <script>
   const img = document.getElementById("label");
   const pre = document.getElementById("zpl");
+  const fpsEl = document.getElementById("fps");
   const frameEl = document.getElementById("frame");
+  const totalEl = document.getElementById("total");
   let frame = 0;
+  let last = performance.now();
+  let frames = 0;
+
+  function fmtZPL(text) {
+    const lines = text.split("\n");
+    const prefix = lines.slice(0, 3);
+    const tail = lines.slice(-1);
+    const hexLine = lines.find(l => l.startsWith("^FO"));
+    let hexPreview = "";
+    if (hexLine) {
+      const commaIdx = hexLine.indexOf(",", hexLine.indexOf(",", hexLine.indexOf(",") + 1) + 1);
+      const hex = hexLine.slice(commaIdx + 1).replace(/\^FS$/, "");
+      const ellen = hex.length;
+      hexPreview = hex.slice(0, 80) + "\n  ...  (" + ellen.toLocaleString() + " hex chars)  ...\n" + hex.slice(-80);
+    }
+    return prefix.join("\n") + "\n" + hexPreview + "\n" + tail.join("\n");
+  }
+
+  fetch("/label.zpl").then(r => r.text()).then(t => {
+    totalEl.textContent = t.length.toLocaleString();
+  });
 
   function tick() {
-    const t = Date.now();
+    const now = performance.now();
     frame++;
+    frames++;
     frameEl.textContent = frame;
-    img.src = "/label.png?" + t;
-    fetch("/label.zpl?" + t)
+    img.src = "/label.png?" + Date.now();
+    fetch("/label.zpl?" + Date.now())
       .then(r => r.text())
-      .then(text => { pre.textContent = text; });
+      .then(text => { pre.textContent = fmtZPL(text); })
+      .catch(() => { pre.textContent = "(fetch failed)"; });
+    if (now - last >= 1000) {
+      fpsEl.textContent = frames;
+      frames = 0;
+      last = now;
+    }
   }
 
   tick();

@@ -2,110 +2,82 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"math"
 	"testing"
-	"time"
 
 	"github.com/ingridhq/zebrash"
 	"github.com/ingridhq/zebrash/drawers"
 )
 
-func TestBallHexNotEmpty(t *testing.T) {
-	if ballHex == "" {
-		t.Fatal("ballHex is empty")
+func TestFramesLoaded(t *testing.T) {
+	if len(badAppleFrames) == 0 {
+		t.Fatal("no bad apple frames loaded")
 	}
+	t.Logf("loaded %d frames", len(badAppleFrames))
 }
 
-func TestZPLTemplateRenders(t *testing.T) {
-	tests := []struct {
-		name string
-		y    int
-	}{
-		{"top", 20},
-		{"middle", 160},
-		{"bottom", 300},
+func TestFrameRenders(t *testing.T) {
+	if len(badAppleFrames) < 10 {
+		t.Skip("not enough frames to test")
 	}
 
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         101.6,
-		LabelHeightMm:        101.6,
+		LabelWidthMm:         60,
+		LabelHeightMm:        45,
 		Dpmm:                 8,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			zpl := fmt.Sprintf(labelZPL, 36, tt.y, ballHex)
-			labels, err := parser.Parse([]byte(zpl))
-			if err != nil {
-				t.Fatalf("parse error: %v", err)
-			}
-			if len(labels) == 0 {
-				t.Fatal("no labels parsed")
-			}
+	for _, idx := range []int{0, len(badAppleFrames) / 2, len(badAppleFrames) - 1} {
+		frame := badAppleFrames[idx]
+		zpl := "^XA\n^LL360\n^PW480\n" + frame + "\n^XZ"
 
-			var buf bytes.Buffer
-			if err := drawer.DrawLabelAsPng(labels[0], &buf, opts); err != nil {
-				t.Fatalf("render error: %v", err)
-			}
-
-			png := buf.Bytes()
-			if len(png) == 0 {
-				t.Fatal("rendered PNG is empty")
-			}
-			if !bytes.HasPrefix(png, []byte{0x89, 0x50, 0x4E, 0x47}) {
-				t.Fatal("output is not a valid PNG (missing PNG header)")
-			}
-
-			t.Logf("rendered PNG size: %d bytes at y=%d", len(png), tt.y)
-		})
-	}
-}
-
-func TestBallOscillation(t *testing.T) {
-	now := float64(time.Now().UnixMilli()) / 1000.0
-
-	y1 := int(160 + math.Sin(now*4)*140)
-	y2 := int(160 + math.Sin((now+0.25)*4)*140)
-	y3 := int(160 + math.Sin((now+0.5)*4)*140)
-
-	if y1 == y2 || y2 == y3 || y1 == y3 {
-		t.Errorf("ball y should oscillate, got y1=%d y2=%d y3=%d", y1, y2, y3)
-	}
-}
-
-func TestRenderProducesDifferentFrames(t *testing.T) {
-	parser := zebrash.NewParser()
-	drawer := zebrash.NewDrawer()
-	opts := drawers.DrawerOptions{
-		LabelWidthMm:         101.6,
-		LabelHeightMm:        101.6,
-		Dpmm:                 8,
-		GrayscaleOutput:      true,
-		EnableInvertedLabels: false,
-	}
-
-	render := func(y int) []byte {
-		zpl := fmt.Sprintf(labelZPL, 36, y, ballHex)
 		labels, err := parser.Parse([]byte(zpl))
 		if err != nil {
-			t.Fatalf("parse error: %v", err)
+			t.Fatalf("parse error at frame %d: %v", idx, err)
 		}
+		if len(labels) == 0 {
+			t.Fatalf("no labels at frame %d", idx)
+		}
+
 		var buf bytes.Buffer
 		if err := drawer.DrawLabelAsPng(labels[0], &buf, opts); err != nil {
-			t.Fatalf("render error: %v", err)
+			t.Fatalf("render error at frame %d: %v", idx, err)
 		}
-		return buf.Bytes()
+
+		png := buf.Bytes()
+		if len(png) == 0 {
+			t.Fatalf("empty PNG at frame %d", idx)
+		}
+		if !bytes.HasPrefix(png, []byte{0x89, 0x50, 0x4E, 0x47}) {
+			t.Fatalf("invalid PNG at frame %d", idx)
+		}
+
+		t.Logf("frame %d: %d bytes", idx, len(png))
+	}
+}
+
+func TestFramesDiffer(t *testing.T) {
+	if len(badAppleFrames) < 100 {
+		t.Skip("not enough frames to test")
 	}
 
-	top := render(20)
-	bottom := render(300)
+	unique := make(map[string]bool)
+	for i := 0; i < 100 && i < len(badAppleFrames); i++ {
+		unique[badAppleFrames[i]] = true
+	}
+	if len(unique) < 2 {
+		t.Error("expected at least 2 distinct frames in the first 100")
+	}
 
-	if bytes.Equal(top, bottom) {
-		t.Error("frames at different Y positions should produce different PNGs")
+	mid := len(badAppleFrames) / 2
+	uniqueMid := make(map[string]bool)
+	for i := mid; i < mid+100 && i < len(badAppleFrames); i++ {
+		uniqueMid[badAppleFrames[i]] = true
+	}
+	if len(uniqueMid) < 2 {
+		t.Error("expected at least 2 distinct frames around the middle")
 	}
 }
