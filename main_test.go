@@ -140,9 +140,9 @@ func TestDoomFrames(t *testing.T) {
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         27,
-		LabelHeightMm:        17,
-		Dpmm:                 12,
+		LabelWidthMm:         40,
+		LabelHeightMm:        25,
+		Dpmm:                 8,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
 	}

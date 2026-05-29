@@ -23,12 +23,16 @@ const (
 )
 
 type player struct {
-	x, y    float64
-	angle   float64
-	sector  int
-	moveFB  int32 // -1 back, 0 stop, 1 forward
-	moveLR  int32 // -1 left, 0 stop, 1 right
-	turnLR  int32 // -1 left, 0 stop, 1 right
+	x, y   float64
+	angle  float64
+	sector int
+	moveFB int32
+	moveLR int32
+	turnLR int32
+}
+
+type edgeData struct {
+	x1, y1, x2, y2 float64
 }
 
 type doomGame struct {
@@ -36,21 +40,12 @@ type doomGame struct {
 	player     player
 	frameGFA   string
 	frameReady atomic.Bool
-	vertices   []struct{ x, y float64 }
-	edges      []struct {
-		x1, y1, x2, y2 float64
-		sector          int
-	}
-	sectors []struct {
-		floor, ceil float64
-	}
+	edges      []edgeData
 }
 
 var doomGameState *doomGame
 
-func loadDoomFrames() {
-	// kept for compatibility
-}
+func loadDoomFrames() {}
 
 func loadDoomGame() {
 	w, err := wad.NewWADFromFile("goom/DOOM1.WAD")
@@ -70,56 +65,26 @@ func loadDoomGame() {
 
 	g := &doomGame{level: lvl}
 
-	// extract vertices and edges
 	for _, ld := range lvl.LinesDefs {
 		v1 := lvl.Vert(uint32(ld.Start))
 		v2 := lvl.Vert(uint32(ld.End))
-		x1, y1 := float64(v1.X()), float64(v1.Y())
-		x2, y2 := float64(v2.X()), float64(v2.Y())
-		g.vertices = append(g.vertices, struct{ x, y float64 }{x1, y1})
-		g.vertices = append(g.vertices, struct{ x, y float64 }{x2, y2})
-
-		sectorIdx := int(ld.Right)
-		if sectorIdx < 0 || sectorIdx >= len(lvl.Sectors) {
-			sectorIdx = 0
-		}
-		sector := lvl.Sectors[sectorIdx]
-		g.edges = append(g.edges, struct {
-			x1, y1, x2, y2 float64
-			sector          int
-		}{x1, y1, x2, y2, sectorIdx})
-		g.sectors = append(g.sectors, struct{ floor, ceil float64 }{
-			floor: float64(sector.FloorHeight()),
-			ceil:  float64(sector.CeilHeight()),
+		g.edges = append(g.edges, edgeData{
+			x1: float64(v1.X()), y1: float64(v1.Y()),
+			x2: float64(v2.X()), y2: float64(v2.Y()),
 		})
 	}
 
-	// find player start
 	for _, thing := range lvl.Things {
 		if thing.Type == 1 {
 			g.player.x = float64(thing.X)
 			g.player.y = float64(thing.Y)
 			g.player.angle = float64(thing.Angle) * math.Pi / 180.0
-			for i, ld := range lvl.LinesDefs {
-				v1 := lvl.Vert(uint32(ld.Start))
-				v2 := lvl.Vert(uint32(ld.End))
-				if pointInSector(float64(thing.X), float64(thing.Y),
-					float64(v1.X()), float64(v1.Y()),
-					float64(v2.X()), float64(v2.Y())) {
-					g.player.sector = i
-					break
-				}
-			}
 			break
 		}
 	}
 
 	doomGameState = g
 	go g.loop()
-}
-
-func pointInSector(px, py, x1, y1, x2, y2 float64) bool {
-	return (x2-x1)*(py-y1)-(y2-y1)*(px-x1) > 0
 }
 
 func (g *doomGame) loop() {
@@ -138,29 +103,25 @@ func (g *doomGame) update() {
 		g.player.angle += float64(tr) * turnSpeed * float64(frameInterval) / float64(time.Second)
 	}
 	if fb != 0 || lr != 0 {
-		mx := float64(fb) * math.Cos(g.player.angle)
-		my := float64(fb) * math.Sin(g.player.angle)
-		mx += float64(lr) * math.Cos(g.player.angle+math.Pi/2)
-		my += float64(lr) * math.Sin(g.player.angle+math.Pi/2)
+		mx := float64(fb)*math.Cos(g.player.angle) + float64(lr)*math.Cos(g.player.angle+math.Pi/2)
+		my := float64(fb)*math.Sin(g.player.angle) + float64(lr)*math.Sin(g.player.angle+math.Pi/2)
 		dist := moveSpeed * float64(frameInterval) / float64(time.Second)
-		if dist > 0 {
-			nx := g.player.x + mx*dist
-			ny := g.player.y + my*dist
-			if !g.collides(nx, ny) {
-				g.player.x = nx
-				g.player.y = ny
-			}
+		nx := g.player.x + mx*dist
+		ny := g.player.y + my*dist
+		if !g.collides(nx, ny) {
+			g.player.x = nx
+			g.player.y = ny
 		}
 	}
 }
 
 func (g *doomGame) collides(x, y float64) bool {
+	const margin = 15.0
 	for _, e := range g.edges {
-		minDist := 20.0
 		dx := e.x2 - e.x1
 		dy := e.y2 - e.y1
 		lenSq := dx*dx + dy*dy
-		if lenSq < 1 {
+		if lenSq < 0.01 {
 			continue
 		}
 		t := ((x-e.x1)*dx + (y-e.y1)*dy) / lenSq
@@ -168,7 +129,7 @@ func (g *doomGame) collides(x, y float64) bool {
 		cx := e.x1 + t*dx
 		cy := e.y1 + t*dy
 		dist := math.Sqrt((x-cx)*(x-cx) + (y-cy)*(y-cy))
-		if dist < minDist {
+		if dist < margin {
 			return true
 		}
 	}
@@ -180,18 +141,14 @@ func (g *doomGame) render() {
 	h := screenH
 	raw := make([]byte, (w*h+7)/8)
 
-	// ceiling - all white
-	for i := 0; i < w*h/2/8; i++ {
-		raw[i] = 0xFF
+	// floor: checkerboard pattern (darker than ceiling)
+	floorStart := (w*h/2 + 7) / 8
+	for i := floorStart; i < len(raw); i++ {
+		if (i/5)%2 == 0 {
+			raw[i] = 0x55
+		}
 	}
 
-	// floor pattern
-	start := (w*h/2 + 7) / 8
-	for i := start; i < len(raw); i++ {
-		raw[i] = 0x55
-	}
-
-	// raycasting for walls
 	numRays := w
 	for col := 0; col < numRays; col++ {
 		rayAngle := g.player.angle - fov/2 + (float64(col)/float64(numRays))*fov
@@ -199,35 +156,41 @@ func (g *doomGame) render() {
 		sinA := math.Sin(rayAngle)
 
 		minDist := math.MaxFloat64
-		var wallHeight int
 
 		for _, e := range g.edges {
-			ex1, ey1, ex2, ey2 := e.x1, e.y1, e.x2, e.y2
+			dx := e.x2 - e.x1
+			dy := e.y2 - e.y1
 
-			dx := ex2 - ex1
-			dy := ey2 - ey1
-			denom := cosA*dy - sinA*dx
-			if math.Abs(denom) < 0.001 {
+			denom := sinA*dx - cosA*dy
+			if math.Abs(denom) < 0.0001 {
 				continue
 			}
-			t := ((ex1-g.player.x)*dy - (ey1-g.player.y)*dx) / denom
-			u := ((g.player.x-ex1)*sinA - (g.player.y-ey1)*cosA) / denom
+
+			t := ((g.player.x-e.x1)*dy - (g.player.y-e.y1)*dx) / denom
+			u := (cosA*(g.player.y-e.y1) - sinA*(g.player.x-e.x1)) / denom
+
 			if t > 0 && u >= -0.001 && u <= 1.001 && t < minDist {
 				minDist = t
-				wallHeight = int(float64(h) / (t * math.Cos(rayAngle-g.player.angle)))
 			}
 		}
 
-		if wallHeight > h {
-			wallHeight = h
-		}
-		top := (h - wallHeight) / 2
-		bottom := top + wallHeight
-		for row := top; row < bottom; row++ {
-			byteIdx := row*(w/8) + col/8
-			bitIdx := 7 - (col % 8)
-			if byteIdx < len(raw) {
-				raw[byteIdx] |= 1 << bitIdx
+		if minDist < math.MaxFloat64 {
+			correctedDist := minDist * math.Cos(rayAngle-g.player.angle)
+			if correctedDist < 0.1 {
+				correctedDist = 0.1
+			}
+			wallHeight := int(float64(h) / correctedDist)
+			if wallHeight > h {
+				wallHeight = h
+			}
+			top := (h - wallHeight) / 2
+			bottom := top + wallHeight
+			for row := top; row < bottom; row++ {
+				byteIdx := row*(w/8) + col/8
+				bitIdx := 7 - (col % 8)
+				if byteIdx < len(raw) {
+					raw[byteIdx] |= 1 << bitIdx
+				}
 			}
 		}
 	}

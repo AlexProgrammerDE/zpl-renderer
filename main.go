@@ -155,9 +155,9 @@ func main() {
 		labelOpts := opts
 		if game == "doom" {
 			labelOpts = drawers.DrawerOptions{
-				LabelWidthMm:         27,
-				LabelHeightMm:        17,
-				Dpmm:                 12,
+				LabelWidthMm:         40,
+				LabelHeightMm:        25,
+				Dpmm:                 8,
 				GrayscaleOutput:      true,
 				EnableInvertedLabels: false,
 			}
