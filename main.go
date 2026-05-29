@@ -18,23 +18,42 @@ var (
 	renderCount atomic.Int64
 	renderNanos atomic.Int64
 	firstRender atomic.Bool
+	gameMode    atomic.Value // string: "badapple" or "doom"
 )
 
-func currentZPL() string {
-	if len(badAppleFrames) == 0 {
+func init() {
+	gameMode.Store("badapple")
+}
+
+func currentZPL(game string) string {
+	var frames []string
+	switch game {
+	case "doom":
+		frames = doomFrames
+	default:
+		frames = badAppleFrames
+	}
+	if len(frames) == 0 {
 		return "^XA^XZ"
 	}
 	elapsed := time.Since(startTime).Seconds()
-	idx := int(elapsed*frameRate) % len(badAppleFrames)
-	return fmt.Sprintf("^XA\n^LL600\n^PW600\n%s\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", badAppleFrames[idx])
+	idx := int(elapsed*frameRate) % len(frames)
+	return fmt.Sprintf("^XA\n^LL600\n^PW600\n%s\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", frames[idx])
 }
 
-func currentFrameIndex() int {
-	if len(badAppleFrames) == 0 {
+func currentFrameIndex(game string) int {
+	var frames []string
+	switch game {
+	case "doom":
+		frames = doomFrames
+	default:
+		frames = badAppleFrames
+	}
+	if len(frames) == 0 {
 		return 0
 	}
 	elapsed := time.Since(startTime).Seconds()
-	return int(elapsed*frameRate) % len(badAppleFrames)
+	return int(elapsed*frameRate) % len(frames)
 }
 
 func printStats() {
@@ -46,16 +65,26 @@ func printStats() {
 		if count > 0 {
 			avg = time.Duration(nanos / count)
 		}
-		log.Printf("stats: %d renders | avg %v | frame %d/%d",
-			count, avg.Round(time.Microsecond), currentFrameIndex(), len(badAppleFrames))
+		game := gameMode.Load().(string)
+		log.Printf("stats: %d renders | avg %v | frame %d/%d | mode %s",
+			count, avg.Round(time.Microsecond), currentFrameIndex(game), currentFrameCount(game), game)
+	}
+}
+
+func currentFrameCount(game string) int {
+	switch game {
+	case "doom":
+		return len(doomFrames)
+	default:
+		return len(badAppleFrames)
 	}
 }
 
 func main() {
+	log.Printf("loading doom frames...")
+	loadDoomFrames()
+	log.Printf("loaded %d doom map frames", len(doomFrames))
 	log.Printf("loaded %d bad apple frames", len(badAppleFrames))
-	if len(badAppleFrames) == 0 {
-		log.Fatal("no frames loaded — does frames.zip exist in the binary directory?")
-	}
 
 	go printStats()
 
@@ -72,7 +101,11 @@ func main() {
 
 	http.HandleFunc("/label.png", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		zpl := currentZPL()
+		game := r.URL.Query().Get("game")
+		if game == "" {
+			game = "badapple"
+		}
+		zpl := currentZPL(game)
 
 		labels, err := parser.Parse([]byte(zpl))
 		if err != nil {
@@ -96,15 +129,30 @@ func main() {
 		renderNanos.Add(elapsed.Nanoseconds())
 
 		if firstRender.CompareAndSwap(false, true) {
-			log.Printf("first render: %v (frame %d)", elapsed.Round(time.Microsecond), currentFrameIndex())
+			log.Printf("first render: %v (frame %d)", elapsed.Round(time.Microsecond), currentFrameIndex(game))
 		}
 	})
 
 	http.HandleFunc("/label.zpl", func(w http.ResponseWriter, r *http.Request) {
-		zpl := currentZPL()
+		game := r.URL.Query().Get("game")
+		if game == "" {
+			game = "badapple"
+		}
+		zpl := currentZPL(game)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Write([]byte(zpl))
+	})
+
+	http.HandleFunc("/mode", func(w http.ResponseWriter, r *http.Request) {
+		mode := r.URL.Query().Get("set")
+		if mode == "doom" || mode == "badapple" {
+			gameMode.Store(mode)
+			startTime = time.Now()
+			log.Printf("switched to game mode: %s", mode)
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, gameMode.Load().(string))
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +188,21 @@ var indexHTML = `<!doctype html>
     padding: 32px 16px;
   }
   h1 { font-size: 14px; font-weight: 500; letter-spacing: 0.05em; color: #888; text-transform: uppercase; }
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: #888;
+    background: transparent;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 4px 14px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .tab:hover { color: #ccc; border-color: #555; }
+  .tab.active { color: #fff; background: #3a3a3a; border-color: #555; }
   .grid {
     display: flex;
     gap: 24px;
@@ -212,17 +275,21 @@ var indexHTML = `<!doctype html>
 </style>
 </head>
 <body>
-<h1>bad apple in zpl</h1>
+<h1>zpl-renderer</h1>
+<div class="tabs">
+  <button class="tab active" onclick="setGame('badapple')">Bad Apple</button>
+  <button class="tab" onclick="setGame('doom')">Doom Map</button>
+</div>
 <div class="status">
-  <span id="fps">0</span> fps &middot; frame <span id="frame">0</span> / <span id="total">0</span>
+  <span id="fps">0</span> fps &middot; frame <span id="frame">0</span>
 </div>
 <div class="grid">
   <div class="panel">
     <span class="panel-label">Preview</span>
-    <img id="label" src="/label.png" alt="ZPL label preview">
+    <img id="label" src="/label.png?game=badapple" alt="ZPL label preview">
   </div>
   <div class="panel">
-    <span class="panel-label">ZPL Source (full hex) <button class="copy-btn" id="copyBtn">Copy</button></span>
+    <span class="panel-label">ZPL Source <button class="copy-btn" id="copyBtn">Copy</button></span>
     <pre id="zpl"></pre>
   </div>
 </div>
@@ -231,12 +298,19 @@ var indexHTML = `<!doctype html>
   const pre = document.getElementById("zpl");
   const fpsEl = document.getElementById("fps");
   const frameEl = document.getElementById("frame");
-  const totalEl = document.getElementById("total");
   const copyBtn = document.getElementById("copyBtn");
   let frame = 0;
   let last = performance.now();
   let frames = 0;
   let liveZPL = "";
+  let game = "badapple";
+
+  function setGame(mode) {
+    game = mode;
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    event.target.classList.add("active");
+    fetch("/mode?set=" + mode);
+  }
 
   copyBtn.addEventListener("click", () => {
     navigator.clipboard.writeText(liveZPL).then(() => {
@@ -258,17 +332,13 @@ var indexHTML = `<!doctype html>
     return lines.slice(0, 3).join("\n") + "\n" + hex + "\n" + lines.slice(-1).join("\n");
   }
 
-  fetch("/label.zpl").then(r => r.text()).then(t => {
-    totalEl.textContent = t.length.toLocaleString();
-  });
-
   function tick() {
     const now = performance.now();
     frame++;
     frames++;
     frameEl.textContent = frame;
-    img.src = "/label.png?" + Date.now();
-    fetch("/label.zpl?" + Date.now())
+    img.src = "/label.png?game=" + game + "&" + Date.now();
+    fetch("/label.zpl?game=" + game + "&" + Date.now())
       .then(r => r.text())
       .then(text => {
         liveZPL = text;

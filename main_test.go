@@ -98,7 +98,7 @@ func TestQRCodeRenders(t *testing.T) {
 		EnableInvertedLabels: false,
 	}
 
-	zpl := currentZPL()
+	zpl := currentZPL("badapple")
 	if !strings.Contains(zpl, "https") {
 		t.Fatal("QR code data missing https URL")
 	}
@@ -124,4 +124,49 @@ func TestQRCodeRenders(t *testing.T) {
 	}
 
 	t.Logf("full label with QR: %d bytes", len(png))
+}
+
+func TestDoomFrames(t *testing.T) {
+	loadDoomFrames()
+	if len(doomFrames) < 5 {
+		t.Skip("not enough doom frames to test")
+	}
+
+	parser := zebrash.NewParser()
+	drawer := zebrash.NewDrawer()
+	opts := drawers.DrawerOptions{
+		LabelWidthMm:         50,
+		LabelHeightMm:        50,
+		Dpmm:                 12,
+		GrayscaleOutput:      true,
+		EnableInvertedLabels: false,
+	}
+
+	for _, idx := range []int{0, 60, len(doomFrames) - 1} {
+		frame := doomFrames[idx]
+		zpl := "^XA\n^LL600\n^PW600\n" + frame + "\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ"
+
+		labels, err := parser.Parse([]byte(zpl))
+		if err != nil {
+			t.Fatalf("parse error at doom frame %d: %v", idx, err)
+		}
+		if len(labels) == 0 {
+			t.Fatalf("no labels at doom frame %d", idx)
+		}
+
+		var buf bytes.Buffer
+		if err := drawer.DrawLabelAsPng(labels[0], &buf, opts); err != nil {
+			t.Fatalf("render error at doom frame %d: %v", idx, err)
+		}
+
+		png := buf.Bytes()
+		if len(png) == 0 {
+			t.Fatalf("empty PNG at doom frame %d", idx)
+		}
+		if !bytes.HasPrefix(png, []byte{0x89, 0x50, 0x4E, 0x47}) {
+			t.Fatalf("invalid PNG at doom frame %d", idx)
+		}
+
+		t.Logf("doom frame %d: %d bytes", idx, len(png))
+	}
 }
