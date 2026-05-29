@@ -79,6 +79,7 @@ func loadDoomGame() {
 			g.player.x = float64(thing.X)
 			g.player.y = float64(thing.Y)
 			g.player.angle = float64(thing.Angle) * math.Pi / 180.0
+			fmt.Printf("doom: player start at (%.0f, %.0f) facing %.0f deg\n", g.player.x, g.player.y, float64(thing.Angle))
 			break
 		}
 	}
@@ -141,12 +142,21 @@ func (g *doomGame) render() {
 	h := screenH
 	raw := make([]byte, (w*h+7)/8)
 
-	// floor: checkerboard pattern (darker than ceiling)
+	// floor: checkerboard
 	floorStart := (w*h/2 + 7) / 8
 	for i := floorStart; i < len(raw); i++ {
 		if (i/5)%2 == 0 {
 			raw[i] = 0x55
 		}
+	}
+
+	// crosshair
+	cx, cy := w/2, h/2
+	for i := cx - 10; i <= cx+10; i++ {
+		setPixelRaw(raw, w, i, cy)
+	}
+	for i := cy - 10; i <= cy+10; i++ {
+		setPixelRaw(raw, w, cx, i)
 	}
 
 	numRays := w
@@ -186,11 +196,7 @@ func (g *doomGame) render() {
 			top := (h - wallHeight) / 2
 			bottom := top + wallHeight
 			for row := top; row < bottom; row++ {
-				byteIdx := row*(w/8) + col/8
-				bitIdx := 7 - (col % 8)
-				if byteIdx < len(raw) {
-					raw[byteIdx] |= 1 << bitIdx
-				}
+				setPixelRaw(raw, w, col, row)
 			}
 		}
 	}
@@ -219,4 +225,13 @@ func setDoomInput(fb, lr, tr int32) {
 		atomic.StoreInt32(&doomGameState.player.moveLR, lr)
 		atomic.StoreInt32(&doomGameState.player.turnLR, tr)
 	}
+}
+
+func setPixelRaw(raw []byte, stride, x, y int) {
+	if x < 0 || y < 0 || x >= stride || y*stride/8+x/8 >= len(raw) {
+		return
+	}
+	byteIdx := y*(stride/8) + x/8
+	bitIdx := 7 - (x % 8)
+	raw[byteIdx] |= 1 << bitIdx
 }
