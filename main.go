@@ -117,30 +117,22 @@ func main() {
 				setDoomInput(1, 0, 0)
 			case "s":
 				setDoomInput(-1, 0, 0)
-			case "W":
-				setDoomInput(0, 0, 0) // release
-			case "S":
+			case "W", "S":
 				setDoomInput(0, 0, 0)
 			case "a":
-				setDoomInput(0, 0, -1)
+				setDoomInput(0, -1, 0)
 			case "d":
-				setDoomInput(0, 0, 1)
-			case "A":
-				setDoomInput(0, 0, 0)
-			case "D":
+				setDoomInput(0, 1, 0)
+			case "A", "D":
 				setDoomInput(0, 0, 0)
 			case "ArrowLeft":
 				setDoomInput(0, 0, -1)
 			case "ArrowRight":
 				setDoomInput(0, 0, 1)
-			case "ArrowLeftX", "ArrowRightX":
-				setDoomInput(0, 0, 0)
-			case "q":
-				setDoomInput(0, 1, 0)
-			case "e":
-				setDoomInput(0, -1, 0)
-			case "Q", "E":
-				setDoomInput(0, 0, 0)
+			default:
+				if len(msg) > 0 && msg[0] >= 'A' && msg[0] <= 'Z' {
+					setDoomInput(0, 0, 0)
+				}
 			}
 		}
 	})

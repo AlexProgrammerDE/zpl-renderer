@@ -171,15 +171,31 @@ func (g *doomGame) render() {
 			dx := e.x2 - e.x1
 			dy := e.y2 - e.y1
 
-			denom := sinA*dx - cosA*dy
-			if math.Abs(denom) < 0.0001 {
+			// ray-line intersection: t = cross(A-O, B-A) / cross(D, B-A)
+			// cross(v,w) = v_x*w_y - v_y*w_x
+			crossAO_BA := (e.x1-g.player.x)*dy - (e.y1-g.player.y)*dx
+			crossD_BA := cosA*dy - sinA*dx
+
+			if math.Abs(crossD_BA) < 0.0001 {
 				continue
 			}
 
-			t := ((g.player.x-e.x1)*dy - (g.player.y-e.y1)*dx) / denom
-			u := (cosA*(g.player.y-e.y1) - sinA*(g.player.x-e.x1)) / denom
+			t := crossAO_BA / crossD_BA
+			if t <= 0 {
+				continue
+			}
 
-			if t > 0 && u >= -0.001 && u <= 1.001 && t < minDist {
+			ix := g.player.x + t*cosA
+			iy := g.player.y + t*sinA
+
+			// check if intersection is on the segment
+			dot := (ix-e.x1)*dx + (iy-e.y1)*dy
+			lenSq := dx*dx + dy*dy
+			if dot < 0 || dot > lenSq {
+				continue
+			}
+
+			if t < minDist {
 				minDist = t
 			}
 		}
