@@ -26,7 +26,7 @@ func currentZPL() string {
 	}
 	elapsed := time.Since(startTime).Seconds()
 	idx := int(elapsed*frameRate) % len(badAppleFrames)
-	return fmt.Sprintf("^XA\n^LL480\n^PW480\n%s\n^FO5,365^BQN,2,8^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", badAppleFrames[idx])
+	return fmt.Sprintf("^XA\n^LL600\n^PW600\n%s\n^FO10,370^BQN,2,6^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", badAppleFrames[idx])
 }
 
 func currentFrameIndex() int {
@@ -63,8 +63,8 @@ func main() {
 	drawer := zebrash.NewDrawer()
 
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         40,
-		LabelHeightMm:        40,
+		LabelWidthMm:         50,
+		LabelHeightMm:        50,
 		Dpmm:                 12,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,

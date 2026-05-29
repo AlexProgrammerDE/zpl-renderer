@@ -23,8 +23,8 @@ func TestFrameRenders(t *testing.T) {
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         40,
-		LabelHeightMm:        40,
+		LabelWidthMm:         50,
+		LabelHeightMm:        50,
 		Dpmm:                 12,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
@@ -32,7 +32,7 @@ func TestFrameRenders(t *testing.T) {
 
 	for _, idx := range []int{0, len(badAppleFrames) / 2, len(badAppleFrames) - 1} {
 		frame := badAppleFrames[idx]
-		zpl := "^XA\n^LL480\n^PW480\n" + frame + "\n^FO5,365^BQN,2,8^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ"
+		zpl := "^XA\n^LL600\n^PW600\n" + frame + "\n^FO10,370^BQN,2,6^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ"
 
 		labels, err := parser.Parse([]byte(zpl))
 		if err != nil {
@@ -90,8 +90,8 @@ func TestQRCodeRenders(t *testing.T) {
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         40,
-		LabelHeightMm:        40,
+		LabelWidthMm:         50,
+		LabelHeightMm:        50,
 		Dpmm:                 12,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
