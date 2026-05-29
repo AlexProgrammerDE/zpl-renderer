@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/ingridhq/zebrash"
 	"github.com/ingridhq/zebrash/drawers"
 )
@@ -25,35 +26,17 @@ func init() {
 	gameMode.Store("badapple")
 }
 
-func currentZPL(game string) string {
-	var frames []string
-	switch game {
-	case "doom":
-		frames = doomFrames
-	default:
-		frames = badAppleFrames
-	}
-	if len(frames) == 0 {
-		return "^XA^XZ"
-	}
-	elapsed := time.Since(startTime).Seconds()
-	idx := int(elapsed*frameRate) % len(frames)
-	return fmt.Sprintf("^XA\n^LL600\n^PW600\n%s\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", frames[idx])
-}
-
 func currentFrameIndex(game string) int {
-	var frames []string
 	switch game {
 	case "doom":
-		frames = doomFrames
+		return 1
 	default:
-		frames = badAppleFrames
+		if len(badAppleFrames) == 0 {
+			return 0
+		}
+		elapsed := time.Since(startTime).Seconds()
+		return int(elapsed*frameRate) % len(badAppleFrames)
 	}
-	if len(frames) == 0 {
-		return 0
-	}
-	elapsed := time.Since(startTime).Seconds()
-	return int(elapsed*frameRate) % len(frames)
 }
 
 func printStats() {
@@ -74,16 +57,33 @@ func printStats() {
 func currentFrameCount(game string) int {
 	switch game {
 	case "doom":
-		return len(doomFrames)
+		return 1
 	default:
 		return len(badAppleFrames)
 	}
 }
 
+func currentZPL(game string) string {
+	switch game {
+	case "doom":
+		zpl := currentDoomZPL()
+		if zpl == "^XA^XZ" {
+			return zpl
+		}
+		return fmt.Sprintf("^XA\n^LL200\n^PW320\n%s\n^FO240,180^BQN,2,4^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", zpl)
+	default:
+		if len(badAppleFrames) == 0 {
+			return "^XA^XZ"
+		}
+		elapsed := time.Since(startTime).Seconds()
+		idx := int(elapsed*frameRate) % len(badAppleFrames)
+		return fmt.Sprintf("^XA\n^LL600\n^PW600\n%s\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", badAppleFrames[idx])
+	}
+}
+
 func main() {
-	log.Printf("loading doom frames...")
-	loadDoomFrames()
-	log.Printf("loaded %d doom map frames", len(doomFrames))
+	log.Printf("starting doom game engine...")
+	loadDoomGame()
 	log.Printf("loaded %d bad apple frames", len(badAppleFrames))
 
 	go printStats()
@@ -99,6 +99,52 @@ func main() {
 		EnableInvertedLabels: false,
 	}
 
+	wsUpgrader := websocket.Upgrader{}
+
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+			switch string(msg) {
+			case "w":
+				setDoomInput(1, 0, 0)
+			case "s":
+				setDoomInput(-1, 0, 0)
+			case "W":
+				setDoomInput(0, 0, 0) // release
+			case "S":
+				setDoomInput(0, 0, 0)
+			case "a":
+				setDoomInput(0, 0, -1)
+			case "d":
+				setDoomInput(0, 0, 1)
+			case "A":
+				setDoomInput(0, 0, 0)
+			case "D":
+				setDoomInput(0, 0, 0)
+			case "ArrowLeft":
+				setDoomInput(0, 0, -1)
+			case "ArrowRight":
+				setDoomInput(0, 0, 1)
+			case "ArrowLeftX", "ArrowRightX":
+				setDoomInput(0, 0, 0)
+			case "q":
+				setDoomInput(0, 1, 0)
+			case "e":
+				setDoomInput(0, -1, 0)
+			case "Q", "E":
+				setDoomInput(0, 0, 0)
+			}
+		}
+	})
+
 	http.HandleFunc("/label.png", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		game := r.URL.Query().Get("game")
@@ -106,6 +152,16 @@ func main() {
 			game = "badapple"
 		}
 		zpl := currentZPL(game)
+		labelOpts := opts
+		if game == "doom" {
+			labelOpts = drawers.DrawerOptions{
+				LabelWidthMm:         27,
+				LabelHeightMm:        17,
+				Dpmm:                 12,
+				GrayscaleOutput:      true,
+				EnableInvertedLabels: false,
+			}
+		}
 
 		labels, err := parser.Parse([]byte(zpl))
 		if err != nil {
@@ -119,7 +175,7 @@ func main() {
 
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		if err := drawer.DrawLabelAsPng(labels[0], w, opts); err != nil {
+		if err := drawer.DrawLabelAsPng(labels[0], w, labelOpts); err != nil {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -278,7 +334,7 @@ var indexHTML = `<!doctype html>
 <h1>zpl-renderer</h1>
 <div class="tabs">
   <button class="tab active" onclick="setGame('badapple')">Bad Apple</button>
-  <button class="tab" onclick="setGame('doom')">Doom Map</button>
+  <button class="tab" onclick="setGame('doom')">Play Doom</button>
 </div>
 <div class="status">
   <span id="fps">0</span> fps &middot; frame <span id="frame">0</span>
@@ -303,7 +359,16 @@ var indexHTML = `<!doctype html>
   let last = performance.now();
   let frames = 0;
   let liveZPL = "";
+  const keys = {};
   let game = "badapple";
+  let ws;
+
+  function connectWS() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(proto + "://" + location.host + "/ws");
+    ws.onclose = () => setTimeout(connectWS, 1000);
+  }
+  connectWS();
 
   function setGame(mode) {
     game = mode;
@@ -311,6 +376,19 @@ var indexHTML = `<!doctype html>
     event.target.classList.add("active");
     fetch("/mode?set=" + mode);
   }
+
+  document.addEventListener("keydown", e => {
+    if (game !== "doom") return;
+    if (keys[e.key]) return;
+    keys[e.key] = true;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.key);
+    e.preventDefault();
+  });
+  document.addEventListener("keyup", e => {
+    if (game !== "doom") return;
+    keys[e.key] = false;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.key.toUpperCase());
+  });
 
   copyBtn.addEventListener("click", () => {
     navigator.clipboard.writeText(liveZPL).then(() => {

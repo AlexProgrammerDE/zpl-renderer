@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ingridhq/zebrash"
 	"github.com/ingridhq/zebrash/drawers"
@@ -127,46 +129,46 @@ func TestQRCodeRenders(t *testing.T) {
 }
 
 func TestDoomFrames(t *testing.T) {
-	loadDoomFrames()
-	if len(doomFrames) < 5 {
-		t.Skip("not enough doom frames to test")
+	loadDoomGame()
+	time.Sleep(100 * time.Millisecond)
+
+	zpl := currentDoomZPL()
+	if zpl == "^XA^XZ" {
+		t.Fatal("doom game did not produce a frame")
 	}
 
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         50,
-		LabelHeightMm:        50,
+		LabelWidthMm:         27,
+		LabelHeightMm:        17,
 		Dpmm:                 12,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
 	}
 
-	for _, idx := range []int{0, 60, len(doomFrames) - 1} {
-		frame := doomFrames[idx]
-		zpl := "^XA\n^LL600\n^PW600\n" + frame + "\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ"
+	fullZPL := fmt.Sprintf("^XA\n^LL200\n^PW320\n%s\n^XZ", zpl)
 
-		labels, err := parser.Parse([]byte(zpl))
-		if err != nil {
-			t.Fatalf("parse error at doom frame %d: %v", idx, err)
-		}
-		if len(labels) == 0 {
-			t.Fatalf("no labels at doom frame %d", idx)
-		}
-
-		var buf bytes.Buffer
-		if err := drawer.DrawLabelAsPng(labels[0], &buf, opts); err != nil {
-			t.Fatalf("render error at doom frame %d: %v", idx, err)
-		}
-
-		png := buf.Bytes()
-		if len(png) == 0 {
-			t.Fatalf("empty PNG at doom frame %d", idx)
-		}
-		if !bytes.HasPrefix(png, []byte{0x89, 0x50, 0x4E, 0x47}) {
-			t.Fatalf("invalid PNG at doom frame %d", idx)
-		}
-
-		t.Logf("doom frame %d: %d bytes", idx, len(png))
+	labels, err := parser.Parse([]byte(fullZPL))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
 	}
+	if len(labels) == 0 {
+		t.Fatal("no labels")
+	}
+
+	var buf bytes.Buffer
+	if err := drawer.DrawLabelAsPng(labels[0], &buf, opts); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	png := buf.Bytes()
+	if len(png) == 0 {
+		t.Fatal("empty PNG")
+	}
+	if !bytes.HasPrefix(png, []byte{0x89, 0x50, 0x4E, 0x47}) {
+		t.Fatal("invalid PNG")
+	}
+
+	t.Logf("doom frame: %d bytes", len(png))
 }
