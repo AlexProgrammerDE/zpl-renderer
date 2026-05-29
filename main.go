@@ -39,6 +39,12 @@ func stringsJoin(s ...string) string {
 	return result
 }
 
+func currentZPL() string {
+	t := float64(time.Now().UnixMilli()) / 1000.0
+	y := int(160 + math.Sin(t*4) * 140)
+	return fmt.Sprintf(labelZPL, 36, y, ballHex)
+}
+
 func main() {
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
@@ -52,10 +58,7 @@ func main() {
 	}
 
 	http.HandleFunc("/label.png", func(w http.ResponseWriter, r *http.Request) {
-		t := float64(time.Now().UnixMilli()) / 1000.0
-		y := int(160 + math.Sin(t*4)*140)
-
-		zpl := fmt.Sprintf(labelZPL, 36, y, ballHex)
+		zpl := currentZPL()
 
 		labels, err := parser.Parse([]byte(zpl))
 		if err != nil {
@@ -73,6 +76,12 @@ func main() {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 			return
 		}
+	})
+
+	http.HandleFunc("/label.zpl", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Write([]byte(currentZPL()))
 	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -108,24 +117,53 @@ var indexHTML = `<!doctype html>
     padding: 32px 16px;
   }
   h1 { font-size: 14px; font-weight: 500; letter-spacing: 0.05em; color: #888; text-transform: uppercase; }
-  .container {
+  .grid {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .panel {
     background: #1a1a1a;
     border: 1px solid #2a2a2a;
     border-radius: 8px;
     padding: 24px;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    max-width: 90vw;
+    gap: 12px;
+    min-width: 320px;
+  }
+  .panel-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    color: #555;
+    text-transform: uppercase;
   }
   img {
     display: block;
-    max-width: 100%;
+    max-width: 400px;
     height: auto;
     background: #fff;
     border-radius: 4px;
     image-rendering: auto;
+  }
+  pre {
+    font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #ccc;
+    background: #0f0f0f;
+    border-radius: 6px;
+    padding: 16px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    min-width: 340px;
+    max-width: 450px;
+    max-height: 500px;
+    overflow-y: auto;
   }
   .status {
     font-size: 12px;
@@ -136,23 +174,36 @@ var indexHTML = `<!doctype html>
 </head>
 <body>
 <h1>zpl-renderer</h1>
-<div class="container">
-  <img id="label" src="/label.png" alt="ZPL label preview">
-  <div class="status">
-    Polling every 100ms &middot frame <span id="frame">0</span>
+<div class="status">
+  Polling every 100ms &middot; frame <span id="frame">0</span>
+</div>
+<div class="grid">
+  <div class="panel">
+    <span class="panel-label">Preview</span>
+    <img id="label" src="/label.png" alt="ZPL label preview">
+  </div>
+  <div class="panel">
+    <span class="panel-label">ZPL Source</span>
+    <pre id="zpl"></pre>
   </div>
 </div>
 <script>
   const img = document.getElementById("label");
+  const pre = document.getElementById("zpl");
   const frameEl = document.getElementById("frame");
   let frame = 0;
 
   function tick() {
+    const t = Date.now();
     frame++;
     frameEl.textContent = frame;
-    img.src = "/label.png?" + Date.now();
+    img.src = "/label.png?" + t;
+    fetch("/label.zpl?" + t)
+      .then(r => r.text())
+      .then(text => { pre.textContent = text; });
   }
 
+  tick();
   setInterval(tick, 100);
 </script>
 </body>
