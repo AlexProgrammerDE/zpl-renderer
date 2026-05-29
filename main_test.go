@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/ingridhq/zebrash"
@@ -32,7 +33,7 @@ func TestFrameRenders(t *testing.T) {
 
 	for _, idx := range []int{0, len(badAppleFrames) / 2, len(badAppleFrames) - 1} {
 		frame := badAppleFrames[idx]
-		zpl := "^XA\n^LL600\n^PW600\n" + frame + "\n^FO10,370^BQN,2,6^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ"
+		zpl := "^XA\n^LL600\n^PW600\n" + frame + "\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ"
 
 		labels, err := parser.Parse([]byte(zpl))
 		if err != nil {
@@ -98,6 +99,9 @@ func TestQRCodeRenders(t *testing.T) {
 	}
 
 	zpl := currentZPL()
+	if !strings.Contains(zpl, "https") {
+		t.Fatal("QR code data missing https URL")
+	}
 	labels, err := parser.Parse([]byte(zpl))
 	if err != nil {
 		t.Fatalf("parse error: %v", err)

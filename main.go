@@ -26,7 +26,7 @@ func currentZPL() string {
 	}
 	elapsed := time.Since(startTime).Seconds()
 	idx := int(elapsed*frameRate) % len(badAppleFrames)
-	return fmt.Sprintf("^XA\n^LL600\n^PW600\n%s\n^FO10,370^BQN,2,6^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", badAppleFrames[idx])
+	return fmt.Sprintf("^XA\n^LL600\n^PW600\n%s\n^FO10,370^BQN,2,6^FDM,,https://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", badAppleFrames[idx])
 }
 
 func currentFrameIndex() int {
