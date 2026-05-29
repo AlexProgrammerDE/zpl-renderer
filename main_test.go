@@ -23,16 +23,16 @@ func TestFrameRenders(t *testing.T) {
 	parser := zebrash.NewParser()
 	drawer := zebrash.NewDrawer()
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         60,
-		LabelHeightMm:        45,
-		Dpmm:                 8,
+		LabelWidthMm:         40,
+		LabelHeightMm:        40,
+		Dpmm:                 12,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
 	}
 
 	for _, idx := range []int{0, len(badAppleFrames) / 2, len(badAppleFrames) - 1} {
 		frame := badAppleFrames[idx]
-		zpl := "^XA\n^LL360\n^PW480\n" + frame + "\n^XZ"
+		zpl := "^XA\n^LL480\n^PW480\n" + frame + "\n^FO5,365^BQN,2,8^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ"
 
 		labels, err := parser.Parse([]byte(zpl))
 		if err != nil {
@@ -80,4 +80,44 @@ func TestFramesDiffer(t *testing.T) {
 	if len(uniqueMid) < 2 {
 		t.Error("expected at least 2 distinct frames around the middle")
 	}
+}
+
+func TestQRCodeRenders(t *testing.T) {
+	if len(badAppleFrames) == 0 {
+		t.Skip("no frames loaded")
+	}
+
+	parser := zebrash.NewParser()
+	drawer := zebrash.NewDrawer()
+	opts := drawers.DrawerOptions{
+		LabelWidthMm:         40,
+		LabelHeightMm:        40,
+		Dpmm:                 12,
+		GrayscaleOutput:      true,
+		EnableInvertedLabels: false,
+	}
+
+	zpl := currentZPL()
+	labels, err := parser.Parse([]byte(zpl))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(labels) == 0 {
+		t.Fatal("no labels")
+	}
+
+	var buf bytes.Buffer
+	if err := drawer.DrawLabelAsPng(labels[0], &buf, opts); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	png := buf.Bytes()
+	if len(png) < 1000 {
+		t.Error("PNG with QR code seems too small (QR may be cut off)")
+	}
+	if !bytes.HasPrefix(png, []byte{0x89, 0x50, 0x4E, 0x47}) {
+		t.Fatal("invalid PNG")
+	}
+
+	t.Logf("full label with QR: %d bytes", len(png))
 }

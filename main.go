@@ -14,10 +14,10 @@ import (
 const frameRate = 30.0
 
 var (
-	startTime     = time.Now()
-	renderCount   atomic.Int64
-	renderNanos   atomic.Int64
-	firstRender   atomic.Bool
+	startTime   = time.Now()
+	renderCount atomic.Int64
+	renderNanos atomic.Int64
+	firstRender atomic.Bool
 )
 
 func currentZPL() string {
@@ -26,7 +26,7 @@ func currentZPL() string {
 	}
 	elapsed := time.Since(startTime).Seconds()
 	idx := int(elapsed*frameRate) % len(badAppleFrames)
-	return fmt.Sprintf("^XA\n^LL360\n^PW480\n%s\n^XZ", badAppleFrames[idx])
+	return fmt.Sprintf("^XA\n^LL480\n^PW480\n%s\n^FO5,365^BQN,2,8^FDhttps://github.com/AlexProgrammerDE/zpl-renderer^FS\n^XZ", badAppleFrames[idx])
 }
 
 func currentFrameIndex() int {
@@ -63,9 +63,9 @@ func main() {
 	drawer := zebrash.NewDrawer()
 
 	opts := drawers.DrawerOptions{
-		LabelWidthMm:         60,
-		LabelHeightMm:        45,
-		Dpmm:                 8,
+		LabelWidthMm:         40,
+		LabelHeightMm:        40,
+		Dpmm:                 12,
 		GrayscaleOutput:      true,
 		EnableInvertedLabels: false,
 	}
@@ -163,7 +163,24 @@ var indexHTML = `<!doctype html>
     letter-spacing: 0.06em;
     color: #555;
     text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+  .copy-btn {
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 500;
+    color: #888;
+    background: #252525;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+  }
+  .copy-btn:hover { color: #fff; background: #3a3a3a; }
+  .copy-btn.copied { color: #4ade80; border-color: #4ade80; }
   img {
     display: block;
     max-width: 480px;
@@ -174,17 +191,17 @@ var indexHTML = `<!doctype html>
   }
   pre {
     font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-    font-size: 11px;
-    line-height: 1.4;
-    color: #999;
+    font-size: 10px;
+    line-height: 1.3;
+    color: #ccc;
     background: #0f0f0f;
     border-radius: 6px;
     padding: 16px;
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-all;
-    max-width: 480px;
-    max-height: 360px;
+    max-width: 520px;
+    max-height: 80dvh;
     overflow-y: auto;
   }
   .status {
@@ -205,7 +222,7 @@ var indexHTML = `<!doctype html>
     <img id="label" src="/label.png" alt="ZPL label preview">
   </div>
   <div class="panel">
-    <span class="panel-label">ZPL Source</span>
+    <span class="panel-label">ZPL Source (full hex) <button class="copy-btn" id="copyBtn">Copy</button></span>
     <pre id="zpl"></pre>
   </div>
 </div>
@@ -215,23 +232,30 @@ var indexHTML = `<!doctype html>
   const fpsEl = document.getElementById("fps");
   const frameEl = document.getElementById("frame");
   const totalEl = document.getElementById("total");
+  const copyBtn = document.getElementById("copyBtn");
   let frame = 0;
   let last = performance.now();
   let frames = 0;
+  let liveZPL = "";
+
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(liveZPL).then(() => {
+      copyBtn.textContent = "Copied";
+      copyBtn.classList.add("copied");
+      setTimeout(() => {
+        copyBtn.textContent = "Copy";
+        copyBtn.classList.remove("copied");
+      }, 1200);
+    });
+  });
 
   function fmtZPL(text) {
     const lines = text.split("\n");
-    const prefix = lines.slice(0, 3);
-    const tail = lines.slice(-1);
     const hexLine = lines.find(l => l.startsWith("^FO"));
-    let hexPreview = "";
-    if (hexLine) {
-      const commaIdx = hexLine.indexOf(",", hexLine.indexOf(",", hexLine.indexOf(",") + 1) + 1);
-      const hex = hexLine.slice(commaIdx + 1).replace(/\^FS$/, "");
-      const ellen = hex.length;
-      hexPreview = hex.slice(0, 80) + "\n  ...  (" + ellen.toLocaleString() + " hex chars)  ...\n" + hex.slice(-80);
-    }
-    return prefix.join("\n") + "\n" + hexPreview + "\n" + tail.join("\n");
+    if (!hexLine) return text;
+    const commaIdx = hexLine.indexOf(",", hexLine.indexOf(",", hexLine.indexOf(",") + 1) + 1);
+    const hex = hexLine.slice(commaIdx + 1).replace(/\^FS$/, "");
+    return lines.slice(0, 3).join("\n") + "\n" + hex + "\n" + lines.slice(-1).join("\n");
   }
 
   fetch("/label.zpl").then(r => r.text()).then(t => {
@@ -246,7 +270,10 @@ var indexHTML = `<!doctype html>
     img.src = "/label.png?" + Date.now();
     fetch("/label.zpl?" + Date.now())
       .then(r => r.text())
-      .then(text => { pre.textContent = fmtZPL(text); })
+      .then(text => {
+        liveZPL = text;
+        pre.textContent = fmtZPL(text);
+      })
       .catch(() => { pre.textContent = "(fetch failed)"; });
     if (now - last >= 1000) {
       fpsEl.textContent = frames;
